@@ -25,3 +25,42 @@ jobs:
 
             [1]: https://github.com/peter-evans/create-or-update-comment
           reactions: '+1'
+      - name: Create comment via API
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          # prepare body (preserve newlines)
+          body='This is a multi-line test comment
+          - With GitHub **Markdown** :sparkles:
+          - Created by API'
+
+          # escape body to JSON string
+          body_json=$(jq -Rs . <<<"$body")
+
+          # create comment
+          resp=$(curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/$OWNER/$REPO/issues/$ISSUE_NUMBER/comments \
+            -d "{\"body\":$body_json}")
+
+          echo "Create comment response: $resp"
+
+          # get comment id
+          comment_id=$(echo "$resp" | jq -r .id)
+          if [ "$comment_id" = "null" ] || [ -z "$comment_id" ]; then
+            echo "Failed to create comment; response:"
+            echo "$resp"
+            exit 1
+          fi
+
+          # add +1 reaction to the comment (use reactions preview header)
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
+            https://api.github.com/repos/$OWNER/$REPO/issues/comments/$comment_id/reactions \
+            -d '{"content":"+1"}' \
+            || echo "Adding reaction returned non-zero status"
